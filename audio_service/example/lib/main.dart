@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:isolate';
 import 'dart:math';
+import 'dart:ui';
 
+import 'package:android_alarm_manager/android_alarm_manager.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
@@ -13,6 +16,12 @@ import 'package:rxdart/rxdart.dart';
 // global variable.
 late AudioHandler _audioHandler;
 
+/// The name associated with the UI isolate's [SendPort].
+const String isolateName = 'isolate';
+
+/// A port used to communicate from a background isolate to the UI isolate.
+final ReceivePort port = ReceivePort();
+
 /// Extension methods for our custom actions.
 extension DemoAudioHandler on AudioHandler {
   Future<void> switchToHandler(int? index) async {
@@ -23,6 +32,8 @@ extension DemoAudioHandler on AudioHandler {
 }
 
 Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
   _audioHandler = await AudioService.init(
     builder: () => LoggingAudioHandler(MainSwitchHandler([
       AudioPlayerHandler(),
@@ -37,7 +48,26 @@ Future<void> main() async {
   runApp(MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
+  @override
+  _MyAppState createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+    AndroidAlarmManager.initialize();
+
+    // Register for events from the background isolate. These messages will
+    // always coincide with an alarm firing.
+    port.listen((dynamic x) async => await _incrementCounter());
+  }
+
+  Future<void> _incrementCounter() async {
+    print('Increment counter!');
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -49,6 +79,19 @@ class MyApp extends StatelessWidget {
 }
 
 class MainScreen extends StatelessWidget {
+  // The background
+  static SendPort? uiSendPort;
+
+  // The callback for our alarm
+  static Future<void> callback() async {
+    print('Alarm fired!');
+
+    // Get the previous cached count and increment it.
+    // This will be null if we're running in the background.
+    uiSendPort ??= IsolateNameServer.lookupPortByName(isolateName);
+    uiSendPort?.send(null);
+  }
+
   static const handlerNames = [
     'Audio Player',
     'Text-To-Speech',
@@ -64,6 +107,19 @@ class MainScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            ElevatedButton(
+              onPressed: () async {
+                await AndroidAlarmManager.oneShot(
+                  const Duration(seconds: 10),
+                  // Ensure we have a unique alarm ID.
+                  Random().nextInt(pow(2, 31).toInt()),
+                  callback,
+                  exact: true,
+                  wakeup: true,
+                );
+              },
+              child: Text("Schedule OneShot Alarm"),
+            ),
             // Queue display/controls.
             StreamBuilder<QueueState>(
               stream: _queueStateStream,
