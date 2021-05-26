@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:isolate';
 import 'dart:math';
+import 'dart:ui';
 
+import 'package:android_alarm_manager/android_alarm_manager.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
@@ -10,9 +13,38 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:rxdart/rxdart.dart';
 
-void main() => runApp(new MyApp());
+/// The name associated with the UI isolate's [SendPort].
+const String isolateName = 'isolate';
 
-class MyApp extends StatelessWidget {
+/// A port used to communicate from a background isolate to the UI isolate.
+final ReceivePort port = ReceivePort();
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  runApp(new MyApp());
+}
+
+class MyApp extends StatefulWidget {
+  @override
+  _MyAppState createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+    AndroidAlarmManager.initialize();
+
+    // Register for events from the background isolate. These messages will
+    // always coincide with an alarm firing.
+    port.listen((_) async => await _incrementCounter());
+  }
+
+  Future<void> _incrementCounter() async {
+    print('Increment counter!');
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -24,6 +56,19 @@ class MyApp extends StatelessWidget {
 }
 
 class MainScreen extends StatelessWidget {
+  // The background
+  static SendPort? uiSendPort;
+
+  // The callback for our alarm
+  static Future<void> callback() async {
+    print('Alarm fired!');
+
+    // Get the previous cached count and increment it.
+    // This will be null if we're running in the background.
+    uiSendPort ??= IsolateNameServer.lookupPortByName(isolateName);
+    uiSendPort?.send(null);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -44,6 +89,19 @@ class MainScreen extends StatelessWidget {
             return Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                ElevatedButton(
+                  onPressed: () async {
+                    await AndroidAlarmManager.oneShot(
+                      const Duration(seconds: 10),
+                      // Ensure we have a unique alarm ID.
+                      Random().nextInt(pow(2, 31).toInt()),
+                      callback,
+                      exact: true,
+                      wakeup: true,
+                    );
+                  },
+                  child: Text("Schedule OneShot Alarm"),
+                ),
                 if (!running) ...[
                   // UI to show when we're not running, i.e. a menu.
                   audioPlayerButton(),
