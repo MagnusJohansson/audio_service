@@ -3,7 +3,7 @@ import 'dart:isolate';
 import 'dart:math';
 import 'dart:ui';
 
-import 'package:android_alarm_manager/android_alarm_manager.dart';
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
@@ -33,7 +33,7 @@ extension DemoAudioHandler on AudioHandler {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   _audioHandler = await AudioService.init(
     builder: () => LoggingAudioHandler(MainSwitchHandler([
       AudioPlayerHandler(),
